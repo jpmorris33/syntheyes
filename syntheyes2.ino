@@ -351,11 +351,11 @@ unsigned char eye[11][32] = {
 
 
 //
-//  Bit reversal table from StackOverflow, for flipping the sprites
+//  Bit reversal table from https://forum.arduino.cc/index.php?topic=117966.0
+//  For flipping the sprites.  This will take 7 cycles vs 2 for each a RAM read, should be fine
 //
 
-static const unsigned char BitReverseTable256[] = 
-{
+const byte reverse[256] PROGMEM = {
   0x00, 0x80, 0x40, 0xC0, 0x20, 0xA0, 0x60, 0xE0, 0x10, 0x90, 0x50, 0xD0, 0x30, 0xB0, 0x70, 0xF0, 
   0x08, 0x88, 0x48, 0xC8, 0x28, 0xA8, 0x68, 0xE8, 0x18, 0x98, 0x58, 0xD8, 0x38, 0xB8, 0x78, 0xF8, 
   0x04, 0x84, 0x44, 0xC4, 0x24, 0xA4, 0x64, 0xE4, 0x14, 0x94, 0x54, 0xD4, 0x34, 0xB4, 0x74, 0xF4, 
@@ -373,7 +373,6 @@ static const unsigned char BitReverseTable256[] =
   0x07, 0x87, 0x47, 0xC7, 0x27, 0xA7, 0x67, 0xE7, 0x17, 0x97, 0x57, 0xD7, 0x37, 0xB7, 0x77, 0xF7, 
   0x0F, 0x8F, 0x4F, 0xCF, 0x2F, 0xAF, 0x6F, 0xEF, 0x1F, 0x9F, 0x5F, 0xDF, 0x3F, 0xBF, 0x7F, 0xFF
 };
-
 
 //
 //  Here's the actual implementation
@@ -499,12 +498,12 @@ void drawEyeR(unsigned char *ptr) {
 
 void drawEyeL(unsigned char *ptr) {
   for( int row=0;row<8; row++) {
-    sendData(LPANEL_TR,row+1,BitReverseTable256[*ptr++]);
-    sendData(LPANEL_TL,row+1,BitReverseTable256[*ptr++]);
+    sendData(LPANEL_TR,row+1,pgm_read_byte(&(reverse[*ptr++])));
+    sendData(LPANEL_TL,row+1,pgm_read_byte(&(reverse[*ptr++])));
   }
   for( int row=0;row<8; row++) {
-    sendData(LPANEL_BR,row+1,BitReverseTable256[*ptr++]);
-    sendData(LPANEL_BL,row+1,BitReverseTable256[*ptr++]);
+    sendData(LPANEL_BR,row+1,pgm_read_byte(&(reverse[*ptr++])));
+    sendData(LPANEL_BL,row+1,pgm_read_byte(&(reverse[*ptr++])));
   }
 }
 
