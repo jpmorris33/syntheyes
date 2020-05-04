@@ -1,6 +1,6 @@
 //
 //  Synth Eyes for Arduino
-//  V2.0 - With sprite-flipping and added eye rolling
+//  V2.0 - With sprite-flipping and reactions
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
@@ -47,6 +47,9 @@
 #define BRIGHTNESS  12  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
 #define CS_PIN 10       // Chip select pin
 
+#define STARTLED_PIN 7
+#define EYEROLL_PIN 8
+
 //
 //  Panel positions for each corner of the sprite
 //
@@ -80,9 +83,11 @@ void wait(int ms, bool interruptable);
 
 // System state variables
 
+#define WAITING -1
 #define BLINK 0
 #define WINK 1
 #define ROLLEYE 2
+#define STARTLED 3
 
 int eyeptr=0;
 int lFrame=0;
@@ -105,6 +110,7 @@ char closeeye[] = {0,1,2,3,4,5,5,5,5,5,5,4,3,2,1,0};
 
 char rolleye[] = {0,6,7,8,9,10,-30,10,9,8,7,6,0};
 
+char startled[] = {0,11,12,-30,12,11,0};
 
 //
 //  Sprite data
@@ -126,7 +132,7 @@ char rolleye[] = {0,6,7,8,9,10,-30,10,9,8,7,6,0};
 //
 
 // Right eye (facing left)
-unsigned char eye[11][32] = {
+unsigned char eye[][32] = {
     // Fully open (0)
     {
       0x00,0x00,
@@ -347,6 +353,46 @@ unsigned char eye[11][32] = {
       0x00,0x00,
       0x00,0x00,
     },
+    // startled 1 (11)
+    {
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x0f,0x80,
+      0x1f,0xc0,
+      
+      0x3f,0xe0,
+      0x7f,0xf0,
+      0x7f,0xf0,
+      0x7f,0xf0,
+      0x7f,0xf0,
+      0x73,0xf0,
+      0x73,0xf0,
+      0x73,0xf0,
+    },
+    // startled 2 (12)
+    {
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x00,0x00,
+      0x0f,0x80,
+      0x1f,0xc0,
+      
+      0x3f,0xe0,
+      0x7f,0xf0,
+      0x7f,0xf0,
+      0x7f,0xf0,
+      0x7f,0xf0,
+      0x73,0xf0,
+      0x73,0xf0,
+      0x7f,0xf0,
+    },
   };
 
 
@@ -380,7 +426,8 @@ const byte reverse[256] PROGMEM = {
 
 void setup() {
   pinMode(CS_PIN,OUTPUT);
-  pinMode(8,INPUT_PULLUP);
+  pinMode(EYEROLL_PIN,INPUT_PULLUP);
+  pinMode(STARTLED_PIN,INPUT_PULLUP);
   digitalWrite(CS_PIN, LOW);
   
   // Set up data transfers
@@ -414,18 +461,21 @@ void loop() {
     wait(WAIT_IN_MS,true); // Can interrupt
     waittick--;
   } else {
+    if(state == WAITING) {
+      getNextAnim();
+    }
+    
     // Otherwise, update the animation
     wait(FRAME_IN_MS,false);
     
     eyeptr++;
-    if(eyeptr >= eyemax) {
+    if(eyeptr >= eyemax || nextstate) {
       // If we've hit the end, go back to the start and wait
       eyeptr=0;
       // Wait between 5-250 cycles before blinking again
       waittick = random(5,250);
-
-      getNextAnim();
-    }
+      state = WAITING;
+  }
 
     // Negative is pause in cycles
     if(eyeanim[eyeptr] < 0) {
@@ -446,18 +496,24 @@ void loop() {
 }
 
 //
-//
+//  Pick the animation to roll, which may have been cued up in response to a GPIO pin
 //
 
 void getNextAnim() {
   int temp;
 
+  eyeptr=0;
   state = nextstate;
 
   switch(nextstate) {
     case ROLLEYE:
       eyeanim = rolleye;
       eyemax = sizeof(rolleye);
+    break;
+
+    case STARTLED:
+      eyeanim = startled;
+      eyemax = sizeof(startled);
     break;
     
     default:
@@ -526,13 +582,29 @@ void sendData(int addr, byte opcode, byte data) {
   digitalWrite(CS_PIN,HIGH);
 }
 
+//
+//  Wait, and cue up a reaction if we detect one via GPIO
+//
+
 void wait(int ms, bool interruptable) {
   for(int ctr=0;ctr<ms;ctr++) {
     delay(1);
-    if(state != ROLLEYE && digitalRead(8) == LOW) {
-      nextstate = ROLLEYE;
-      if(interruptable) {
-        return;
+
+    if(state == WAITING) {
+      if(digitalRead(STARTLED_PIN) == LOW) {
+        nextstate = STARTLED;
+        if(interruptable) {
+          waittick=0;
+          return;
+        }
+      }
+      
+      if(digitalRead(EYEROLL_PIN) == LOW) {
+        nextstate = ROLLEYE;
+        if(interruptable) {
+          waittick=0;
+          return;
+        }
       }
     }
   }
