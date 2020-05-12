@@ -1,6 +1,6 @@
 //
 //  Synth Eyes for Arduino
-//  V2.1 - With sprite-flipping and reactions
+//  V2.2 - With sprite-flipping, reactions and lazy updates
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
@@ -93,6 +93,8 @@ int eyeptr=0;
 int lFrame=0;
 int rFrame=0;
 char *eyeanim;
+char *lastEyeL = NULL;
+char *lastEyeR = NULL;
 int eyemax = 0;
 int waittick=0;
 int state=0;
@@ -558,6 +560,12 @@ void getNextAnim() {
 //
 
 void drawEyeR(unsigned char *ptr) {
+
+  if(lastEyeR == ptr) {
+    return;
+  }
+  lastEyeR = ptr;
+  
   for( int row=0;row<8; row++) {
     sendData(RPANEL_TL,row+1,*ptr++);
     sendData(RPANEL_TR,row+1,*ptr++);
@@ -573,6 +581,12 @@ void drawEyeR(unsigned char *ptr) {
 //
 
 void drawEyeL(unsigned char *ptr) {
+
+  if(lastEyeL == ptr) {
+    return;
+  }
+  lastEyeL = ptr;
+  
   for( int row=0;row<8; row++) {
     sendData(LPANEL_TR,row+1,pgm_read_byte(&(reverse[*ptr++])));
     sendData(LPANEL_TL,row+1,pgm_read_byte(&(reverse[*ptr++])));
