@@ -1,6 +1,6 @@
 //
 //  Synth Eyes for Arduino
-//  V2.2 - With sprite-flipping, reactions and lazy updates
+//  V2.3 - With sprite-flipping, reactions, lazy updates and new state system
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
@@ -49,6 +49,7 @@
 
 #define STARTLED_PIN 7
 #define EYEROLL_PIN 8
+#define ANNOYED_PIN 6
 
 //
 //  Panel positions for each corner of the sprite
@@ -88,13 +89,14 @@ void wait(int ms, bool interruptable);
 #define WINK 1
 #define ROLLEYE 2
 #define STARTLED 3
+#define ANNOYED 4
 
 int eyeptr=0;
 int lFrame=0;
 int rFrame=0;
 char *eyeanim;
-char *lastEyeL = NULL;
-char *lastEyeR = NULL;
+unsigned char *lastEyeL = NULL;
+unsigned char *lastEyeR = NULL;
 int eyemax = 0;
 int waittick=0;
 int state=0;
@@ -114,6 +116,8 @@ char rolleye[] = {0,6,6,7,7,8,8,9,9,10,10,11,11,-20,11,11,10,10,9,9,8,8,7,7,6,6,
 
 char startled[] = {0,12,13,-30,13,12,0};
 
+char annoyed[] = {0,14,15,-30,15,14,0};
+
 //
 //  Sprite data
 //
@@ -128,7 +132,7 @@ char startled[] = {0,12,13,-30,13,12,0};
 // Or to make them animate a pixel at a time instead of two pixels
 //
 // Note that these are currently stored in dynamic memory so there's a 2KB limit,
-// As of this writing we're using 438 bytes, and each sprite takes 32 bytes.
+// As of this writing we're using 650 bytes, and each sprite takes 32 bytes.
 // Putting the sprites into program memory will give you about 30KB to play with
 // but you'd have to modify the software to read them from that address space.
 //
@@ -415,7 +419,70 @@ unsigned char eye[][32] = {
       0x73,0xf0,
       0x7f,0xf0,
     },
+  // Annoyed 1 (14)
+    {
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x01, 0x80,
+      0x07, 0xc0,
+      
+      0x1f, 0xe0,
+      0x3f, 0xf0,
+      0x7f, 0xf0,
+      0x7f, 0xf0,
+      0x73, 0xf0,
+      0x61, 0xf0,
+      0x61, 0xf0,
+      0x61, 0xf0,
+    },
+// Annoyed 2 (15)
+    {      
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x00,
+      0x00, 0x40,
+      
+      0x01, 0xe0,
+      0x07, 0xf0,
+      0x1f, 0xf0,
+      0x7f, 0xf0,
+      0x73, 0xf0,
+      0x61, 0xf0,
+      0x61, 0xf0,
+      0x61, 0xf0
+    }
   };
+
+//
+//  State structure
+//
+
+struct STATES {
+  char id;
+  char* anim;
+  unsigned char animlen;
+  char pin;
+};
+
+// Add any new animation triggers here
+
+struct STATES states[] = {
+{BLINK,     closeeye,    sizeof(closeeye), 0},
+{WINK,      closeeye,    sizeof(closeeye), 0},
+{ROLLEYE,   rolleye,     sizeof(rolleye),  EYEROLL_PIN},
+{STARTLED,  startled,    sizeof(startled), STARTLED_PIN},
+{ANNOYED,   annoyed,     sizeof(annoyed),  ANNOYED_PIN},
+// DO NOT REMOVE THIS LAST LINE!
+{0,         NULL,        0,                0}  
+};
 
 
 //
@@ -448,9 +515,14 @@ const byte reverse[256] PROGMEM = {
 
 void setup() {
   pinMode(CS_PIN,OUTPUT);
-  pinMode(EYEROLL_PIN,INPUT_PULLUP);
-  pinMode(STARTLED_PIN,INPUT_PULLUP);
   digitalWrite(CS_PIN, LOW);
+
+  // Init pins for states
+  for(int ctr=0;states[ctr].anim;ctr++) {
+    if(states[ctr].pin) {
+      pinMode(states[ctr].pin, INPUT_PULLUP);
+    }
+  }
   
   // Set up data transfers
   SPI.begin();
@@ -522,34 +594,24 @@ void loop() {
 //
 
 void getNextAnim() {
-  int temp;
+  int ctr;
 
   eyeptr=0;
   state = nextstate;
 
-  switch(nextstate) {
-    case ROLLEYE:
-      eyeanim = rolleye;
-      eyemax = sizeof(rolleye);
-    break;
-
-    case STARTLED:
-      eyeanim = startled;
-      eyemax = sizeof(startled);
-    break;
-    
-    default:
-      eyeanim = closeeye;
-      eyemax = sizeof(closeeye);
-    break;
-    
+  for(ctr=0;states[ctr].anim;ctr++) {
+    if(states[ctr].id == nextstate) {
+      eyeanim = states[ctr].anim;
+      eyemax = states[ctr].animlen;
+      break;
+    }
   }
   nextstate = BLINK;
 
-  if(state == BLINK) {
-    // 1 in 5 chance of him winking
-    temp = random(1,5);
-    if(temp == 1 && state ) {
+  if(ctr == BLINK) {
+    // 1 in 10 chance of him winking
+    ctr = random(1,10);
+    if(ctr == 1) {
       state = WINK;
     }
   }
@@ -625,19 +687,16 @@ void wait(int ms, bool interruptable) {
     delay(1);
 
     if(state == WAITING) {
-      if(digitalRead(STARTLED_PIN) == LOW) {
-        nextstate = STARTLED;
-        if(interruptable) {
-          waittick=0;
-          return;
-        }
-      }
-      
-      if(digitalRead(EYEROLL_PIN) == LOW) {
-        nextstate = ROLLEYE;
-        if(interruptable) {
-          waittick=0;
-          return;
+
+      for(int ctr2=0;states[ctr2].anim;ctr2++) {
+        if(states[ctr2].pin) {
+          if(digitalRead(states[ctr2].pin) == LOW) {
+            nextstate = states[ctr2].id;
+            if(interruptable) {
+              waittick=0;
+              return;
+            }
+          }
         }
       }
     }
