@@ -47,9 +47,11 @@
 #define BRIGHTNESS  2  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
 #define CS_PIN 10       // Chip select pin
 
-#define STARTLED_PIN 7
-#define EYEROLL_PIN 8
-#define ANNOYED_PIN 6
+#ifndef OVERRIDE_PINS
+	#define STARTLED_PIN 7
+	#define EYEROLL_PIN 8
+	#define ANNOYED_PIN 6
+#endif
 
 //
 //  Panel positions for each corner of the sprite

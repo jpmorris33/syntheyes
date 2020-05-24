@@ -1,20 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "arduino.h"
+#include <wiringPi.h>
+#include <wiringPiSPI.h>
 
 SPIlib::SPIlib() {
 }
 
 void SPIlib::begin() {
-printf("NOT YET\n");
+wiringPiSetup();
 }
 
-void SPIlib::beginTransaction(int nothing) {
-printf("NOT YET\n");
+void SPIlib::beginTransaction(long speed) {
+wiringPiSPISetup(0,speed);
 }
 
 void SPIlib::transfer(unsigned char *ptr, int len) {
-printf("NOT YET\n");
+wiringPiSPIDataRW(0,ptr,len);
 }
 
 
