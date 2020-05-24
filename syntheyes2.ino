@@ -1,6 +1,6 @@
 //
 //  Synth Eyes for Arduino
-//  V2.3 - With sprite-flipping, reactions, lazy updates and new state system
+//  V2.5 - With sprite-flipping, reactions, lazy updates, new state system, raspberry Pi compatibility
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
@@ -85,6 +85,7 @@ void drawEyeR(unsigned char *ptr);
 void sendData(int addr, byte opcode, byte data);
 void wait(int ms, bool interruptable);
 void getNextAnim();
+bool checkExpression(int pin);
 
 // System state variables
 
@@ -689,12 +690,10 @@ void sendData(int addr, byte opcode, byte data) {
 void wait(int ms, bool interruptable) {
   for(int ctr=0;ctr<ms;ctr++) {
     delay(1);
-
     if(state == WAITING) {
-
       for(int ctr2=0;states[ctr2].anim;ctr2++) {
         if(states[ctr2].pin) {
-          if(digitalRead(states[ctr2].pin) == LOW) {
+          if(checkExpression(states[ctr2].pin)) {
             nextstate = states[ctr2].id;
             if(interruptable) {
               waittick=0;
@@ -706,3 +705,13 @@ void wait(int ms, bool interruptable) {
     }
   }
 }
+
+//
+//  Default handler for Arduino, can be replaced for other platfirms
+//
+
+#ifndef CUSTOM_EXPRESSION_HANDLER
+bool checkExpression(int pin) {
+    return (digitalRead(states[pin].pin) == LOW);
+}
+#endif

@@ -12,7 +12,7 @@ wiringPiSetup();
 }
 
 void SPIlib::beginTransaction(long speed) {
-wiringPiSPISetup(0,speed);
+wiringPiSPISetup(0,speed/2); // half speed is more stable on BPI
 }
 
 void SPIlib::transfer(unsigned char *ptr, int len) {
