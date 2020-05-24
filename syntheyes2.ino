@@ -44,7 +44,7 @@
 
 #define FRAME_IN_MS 20  // Delay per animation frame in milliseconds (30 default)
 #define WAIT_IN_MS  60  // Delay per tick in milliseconds when waiting to blink again (60 default)
-#define BRIGHTNESS  12  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
+#define BRIGHTNESS  2  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
 #define CS_PIN 10       // Chip select pin
 
 #define STARTLED_PIN 7
@@ -78,9 +78,11 @@
 
 // Functions
 
-void drawEye(unsigned char *ptr);
+void drawEyeL(unsigned char *ptr);
+void drawEyeR(unsigned char *ptr);
 void sendData(int addr, byte opcode, byte data);
 void wait(int ms, bool interruptable);
+void getNextAnim();
 
 // System state variables
 
@@ -94,7 +96,7 @@ void wait(int ms, bool interruptable);
 int eyeptr=0;
 int lFrame=0;
 int rFrame=0;
-char *eyeanim;
+signed char *eyeanim;
 unsigned char *lastEyeL = NULL;
 unsigned char *lastEyeR = NULL;
 int eyemax = 0;
@@ -110,13 +112,13 @@ unsigned char spidata[16];
 //
 
 // Animation sequence for closing eye
-char closeeye[] = {0,1,2,3,4,5,5,5,5,5,5,4,3,2,1,0};
+signed char closeeye[] = {0,1,2,3,4,5,5,5,5,5,5,4,3,2,1,0};
 
-char rolleye[] = {0,6,6,7,7,8,8,9,9,10,10,11,11,-20,11,11,10,10,9,9,8,8,7,7,6,6,0};
+signed char rolleye[] = {0,6,6,7,7,8,8,9,9,10,10,11,11,-20,11,11,10,10,9,9,8,8,7,7,6,6,0};
 
-char startled[] = {0,12,13,-30,13,12,0};
+signed char startled[] = {0,12,13,-30,13,12,0};
 
-char annoyed[] = {0,14,15,-30,15,14,0};
+signed char annoyed[] = {0,14,15,-30,15,14,0};
 
 //
 //  Sprite data
@@ -467,7 +469,7 @@ unsigned char eye[][32] = {
 
 struct STATES {
   char id;
-  char* anim;
+  signed char *anim;
   unsigned char animlen;
   char pin;
 };
