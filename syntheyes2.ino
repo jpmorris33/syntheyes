@@ -1,6 +1,6 @@
 //
 //  Synth Eyes for Arduino
-//  V2.5 - With sprite-flipping, reactions, lazy updates, new state system, raspberry Pi compatibility
+//  V2.5.1 - With sprite-flipping, reactions, lazy updates, new state system, raspberry Pi compatibility
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
@@ -712,6 +712,6 @@ void wait(int ms, bool interruptable) {
 
 #ifndef CUSTOM_EXPRESSION_HANDLER
 bool checkExpression(int pin) {
-    return (digitalRead(states[pin].pin) == LOW);
+    return (digitalRead(pin) == LOW);
 }
 #endif
