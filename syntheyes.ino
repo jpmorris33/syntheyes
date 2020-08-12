@@ -1,5 +1,6 @@
 //
 //  Synth Eyes for Arduino
+//  V3.0.1 - Bug fix
 //  V3.0.0 - Restructure to use procedural blinking
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
@@ -560,7 +561,7 @@ void getNextAnim() {
   }
   nextstate = BLINK;
 
-  if(ctr == BLINK) {
+  if(state == BLINK) {
     // 1 in 10 chance of him winking
     ctr = random(1,10);
     if(ctr == 1) {
