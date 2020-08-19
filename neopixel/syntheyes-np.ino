@@ -2,7 +2,7 @@
 
 //
 //  Synth Eyes for Arduino Neopixels
-//  V1.0.0
+//  V1.1.0 - drive status LEDs as well
 //
 //  Copyright (c) 2020 J. P. Morris
 // 
@@ -28,20 +28,23 @@
 
 // Configurables, adjust to taste
 
-#define COLOUR_WHEEL  // Cycle through colours instead of having a static colour
+//#define COLOUR_WHEEL  // Cycle through colours instead of having a static colour
 
 // RGB triplets for the eye colour, default to yellow (full red, full green, no blue)
 #define COLOUR_RED   0xff
 #define COLOUR_GREEN 0xff
 #define COLOUR_BLUE  0x00
 
-#define BRIGHTNESS  2  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
+#define BRIGHTNESS  4  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
+#define STATUSBRIGHT 100
 #define FRAME_IN_MS 20  // Delay per animation frame in milliseconds (20 default)
 #define WAIT_IN_MS  60  // Delay per tick in milliseconds when waiting to blink again (60 default)
 #define MIN_DELAY    5   // Minimum delay between blinks
 #define MAX_DELAY    250 // Maximum delay between blinks
+#define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower
 
-#define CS_PIN 10       // Chip select pin
+#define EYE_PIN 6
+#define STATUS_PIN 5
 
 #ifndef OVERRIDE_PINS
 	#define STARTLED_PIN 7
@@ -69,6 +72,9 @@
 // System constants, you probably don't want to touch these
 #define PIXELS 128
 #define PIXELS_PER_PANEL 64
+#define STATUSPIXELS 6
+
+#define STEPS (STATUSPIXELS*2)
 
 // Functions
 
@@ -79,6 +85,7 @@ void sendData(int addr, byte opcode, byte data);
 void wait(int ms, bool interruptable);
 void getNextAnim();
 bool checkExpression(int pin);
+void statusCycle(unsigned char r, unsigned char g, unsigned char b);
 
 // System state variables
 
@@ -102,8 +109,13 @@ bool updateL=true;
 bool updateR=true;
 
 CRGB framebuffer[PIXELS];
+CRGB statusbuffer[STATUSPIXELS];
 unsigned char bitfb[8];
 CRGB colour(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
+CLEDController *eyeController;
+CLEDController *statusController;
+
+unsigned char ramp[STEPS];
 
 //
 //  Animation data
@@ -312,13 +324,31 @@ void setup() {
   
   // Clear the framebuffer
 
-  FastLED.addLeds<NEOPIXEL, 6>(framebuffer,PIXELS);
-  FastLED.setBrightness(BRIGHTNESS*2);
+  eyeController = &FastLED.addLeds<NEOPIXEL, EYE_PIN>(framebuffer,PIXELS);
   
   for(int ctr=0;ctr<PIXELS;ctr++) {
     framebuffer[ctr]=CRGB::Black;
   }
-  FastLED.show();
+  eyeController->showLeds(BRIGHTNESS*2);
+
+  statusController = &FastLED.addLeds<NEOPIXEL, STATUS_PIN>(statusbuffer,STATUSPIXELS);
+  for(int ctr=0;ctr<STATUSPIXELS;ctr++) {
+    statusbuffer[ctr]=CRGB::Red;
+  }
+  statusController->showLeds(STATUSBRIGHT);
+
+  // Build lookup table for pulsating status lights
+  // I'm sure there's a smarter way to do this on the fly, but...
+  int ramping=0;
+  for(int ctr=0;ctr<STEPS;ctr++) {
+    ramp[ctr]=ramping;
+    if(ctr<STEPS/2) {
+      ramping+=(256/(STEPS*2));
+    } else {
+      ramping-=(256/(STEPS*2));
+    }
+  }
+  
   
   randomSeed(0);  
 
@@ -364,7 +394,9 @@ void updateWheel() {
     getSprite(&eye[frameidx][0], blinkidx);
     drawEyeR();
     getSprite(&eye[frameidx][0], state == WINK ? 0 : blinkidx);
-    drawEyeL();
+    drawEyeL();    
+
+    statusCycle(wheelR,wheelG,wheelB);
     
 }
 #endif
@@ -379,8 +411,10 @@ void loop() {
     drawEyeR();
     getSprite(&eye[frameidx][0], state == WINK ? 0 : blinkidx);
     drawEyeL();
+    statusCycle(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
 #endif
 
+  
   // If we're idling, count down
   if(waittick > 0) {
     if(state == BLINK || state == WINK) {
@@ -508,7 +542,7 @@ void drawEyeR() {
     }
   }
 
-  FastLED.show();
+  eyeController->showLeds(BRIGHTNESS*2);
 
   // Don't send again until the frame changes
   updateR=false;
@@ -541,7 +575,7 @@ void drawEyeL() {
     }
   }
 
-  FastLED.show();
+  eyeController->showLeds(BRIGHTNESS*2);
 
   // Don't send again until the frame changes
   updateL=false;
@@ -558,6 +592,8 @@ void wait(int ms, bool interruptable) {
 
 #ifdef COLOUR_WHEEL
     updateWheel();
+#else
+    statusCycle(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
 #endif
     
     if(state == WAITING) {
@@ -575,6 +611,32 @@ void wait(int ms, bool interruptable) {
     }
   }
 }
+
+void statusCycle(unsigned char r, unsigned char g, unsigned char b) {
+  uint16_t ctr;
+  static uint16_t pos=0;
+  static int divider=0;
+  int maxdiv=STATUS_DIVIDER;
+  #ifdef COLOUR_WHEEL
+    maxdiv /= 5;
+  #endif
+
+  divider++;
+  if(divider > maxdiv) {
+    pos++;
+    divider=0;
+  }
+  if(pos > 255) {
+    pos=0;
+  }
+
+  for(ctr=0; ctr< STATUSPIXELS; ctr++) {
+    statusbuffer[ctr] = CRGB(r,g,b);
+    statusbuffer[ctr].nscale8(ramp[(ctr+pos)%STEPS]);
+  }
+    statusController->showLeds(STATUSBRIGHT);
+}
+
 
 //
 //  Default handler for Arduino, can be replaced for other platfirms
