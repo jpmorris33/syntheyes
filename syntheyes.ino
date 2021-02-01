@@ -1,11 +1,12 @@
 //
 //  Synth Eyes for Arduino
+//  V3.1.0 - Optionally drive neopixel status lights as well
 //  V3.0.1 - Bug fix
 //  V3.0.0 - Restructure to use procedural blinking
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
-//  Copyright (c) 2020 J. P. Morris
+//  Copyright (c) 2021 J. P. Morris
 // 
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -38,18 +39,30 @@
 //  If your panels are in a different order, adjust the constants below
 //
 
+#define STATUS_LIGHTS
 
 #include <SPI.h>
+#ifdef STATUS_LIGHTS
+#include <FastLED.h>
+#endif
 
 // Configurables, adjust to taste
 
+// RGB triplets for the status light colour, default to yellow (full red, full green, no blue)
+#define COLOUR_RED   0xff
+#define COLOUR_GREEN 0xff
+#define COLOUR_BLUE  0x00
+
 #define BRIGHTNESS  2  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
+#define STATUSBRIGHT 100
 #define FRAME_IN_MS 20  // Delay per animation frame in milliseconds (20 default)
 #define WAIT_IN_MS  60  // Delay per tick in milliseconds when waiting to blink again (60 default)
 #define MIN_DELAY    5   // Minimum delay between blinks
 #define MAX_DELAY    250 // Maximum delay between blinks
+#define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower
 
 #define CS_PIN 10       // Chip select pin
+#define STATUS_PIN 5
 
 #ifndef OVERRIDE_PINS
 	#define STARTLED_PIN 7
@@ -82,6 +95,12 @@
 #define CMD_DECODE    0x09
 #define CMD_SHUTDOWN  0x0C
 
+#define PIXELS 128
+#define PIXELS_PER_PANEL 64
+#define STATUSPIXELS 6
+
+#define STEPS (STATUSPIXELS*2)
+
 // Functions
 
 void drawEyeL();
@@ -91,6 +110,7 @@ void sendData(int addr, byte opcode, byte data);
 void wait(int ms, bool interruptable);
 void getNextAnim();
 bool checkExpression(int pin);
+void statusCycle(unsigned char r, unsigned char g, unsigned char b);
 
 // System state variables
 
@@ -118,6 +138,14 @@ unsigned char spidata[16];
 
 // Frame buffer for procedural blink
 unsigned char framebuffer[16][2];
+
+// Status light variables
+#ifdef STATUS_LIGHTS
+CRGB statusbuffer[STATUSPIXELS];
+CRGB colour(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
+CLEDController *statusController;
+unsigned char ramp[STEPS];
+#endif
 
 //
 //  Animation data
@@ -467,7 +495,28 @@ void setup() {
       sendData(panel, CMD_SCANLIMIT,7);
       sendData(panel, CMD_SHUTDOWN,1);  // 0 turns it off, 1 turns it on
   }
-  
+
+#ifdef STATUS_LIGHTS
+  // Initialise the status lights
+  statusController = &FastLED.addLeds<NEOPIXEL, STATUS_PIN>(statusbuffer,STATUSPIXELS);
+  for(int ctr=0;ctr<STATUSPIXELS;ctr++) {
+    statusbuffer[ctr]=CRGB::Red;
+  }
+  statusController->showLeds(STATUSBRIGHT);
+
+  // Build lookup table for pulsating status lights
+  // I'm sure there's a smarter way to do this on the fly, but...
+  int ramping=0;
+  for(int ctr=0;ctr<STEPS;ctr++) {
+    ramp[ctr]=ramping;
+    if(ctr<STEPS/2) {
+      ramping+=(256/(STEPS*2));
+    } else {
+      ramping-=(256/(STEPS*2));
+    }
+  }
+#endif
+
   randomSeed(0);  
 
   eyeanim = &closeeye[0];
@@ -478,6 +527,7 @@ void setup() {
   getSprite(&eye[frameidx][0], 0);
   drawEyeR();
   drawEyeL();
+  statusCycle(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
 }
 
 void loop() {
@@ -662,6 +712,7 @@ void sendData(int addr, byte opcode, byte data) {
 void wait(int ms, bool interruptable) {
   for(int ctr=0;ctr<ms;ctr++) {
     delay(1);
+    statusCycle(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
     if(state == WAITING) {
       for(int ctr2=0;states[ctr2].anim;ctr2++) {
         if(states[ctr2].pin) {
@@ -677,6 +728,31 @@ void wait(int ms, bool interruptable) {
     }
   }
 }
+
+void statusCycle(unsigned char r, unsigned char g, unsigned char b) {
+#ifdef STATUS_LIGHTS
+  uint16_t ctr;
+  static uint16_t pos=0;
+  static int divider=0;
+  int maxdiv=STATUS_DIVIDER;
+
+  divider++;
+  if(divider > maxdiv) {
+    pos++;
+    divider=0;
+  }
+  if(pos > 255) {
+    pos=0;
+  }
+
+  for(ctr=0; ctr< STATUSPIXELS; ctr++) {
+    statusbuffer[ctr] = CRGB(r,g,b);
+    statusbuffer[ctr].nscale8(ramp[(ctr+pos)%STEPS]);
+  }
+    statusController->showLeds(STATUSBRIGHT);
+#endif    
+}
+
 
 //
 //  Default handler for Arduino, can be replaced for other platfirms
