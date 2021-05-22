@@ -61,8 +61,8 @@
 #define MAX_DELAY    250 // Maximum delay between blinks
 #define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower
 
-#define CS_PIN 10       // Chip select pin
-#define STATUS_PIN 5
+#define CS_PIN 10       // Chip select pin for eye panels
+#define STATUS_PIN 5    // Neopixels DIN pin for status LEDs
 
 #ifndef OVERRIDE_PINS
 	#define STARTLED_PIN 7
@@ -159,6 +159,8 @@ unsigned char ramp[STEPS];
 // Negative numbers indicate a delay in wait cycles (60ms) rather than a frame number.
 // See the comments in the sprite data below for the ID of each frame
 //
+
+// NOTE: Animations should always start with the default expression (e.g. 0) as they go back to the first frame in the list when the sequence finishes!
 
 signed char closeeye[] = {0,-50,0}; // Blink is now done procedurally instead of using a complex animation, so just display one frame and wait
 
