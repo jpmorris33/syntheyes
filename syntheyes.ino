@@ -1,5 +1,6 @@
 //
 //  Synth Eyes for Arduino
+//  V3.1.1 - ACK LED and voice detection for status lights
 //  V3.1.0 - Optionally drive neopixel status lights as well
 //  V3.0.1 - Bug fix
 //  V3.0.0 - Restructure to use procedural blinking
@@ -39,7 +40,8 @@
 //  If your panels are in a different order, adjust the constants below
 //
 
-#define STATUS_LIGHTS
+#define STATUS_LIGHTS     // Drive neopixel status lights in the horns
+#define VOICE_DETECTOR    // Flash the status lights if a microphone detects something
 
 #include <SPI.h>
 #ifdef STATUS_LIGHTS
@@ -50,19 +52,23 @@
 
 // RGB triplets for the status light colour, default to yellow (full red, full green, no blue)
 #define COLOUR_RED   0xff
-#define COLOUR_GREEN 0xff
+#define COLOUR_GREEN 0x80
 #define COLOUR_BLUE  0x00
 
 #define BRIGHTNESS  2  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
 #define STATUSBRIGHT 100
+#define VOICEBRIGHT 255
 #define FRAME_IN_MS 20  // Delay per animation frame in milliseconds (20 default)
 #define WAIT_IN_MS  60  // Delay per tick in milliseconds when waiting to blink again (60 default)
 #define MIN_DELAY    5   // Minimum delay between blinks
 #define MAX_DELAY    250 // Maximum delay between blinks
-#define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower
+#define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower (def 32)
 
 #define CS_PIN 10       // Chip select pin for eye panels
 #define STATUS_PIN 5    // Neopixels DIN pin for status LEDs
+#define ACK_LED_PIN A0  // Flashes briefly when receiving an expression input to signal that you've got it
+#define VOICE_PIN A1    // Audio input for flashing the status pins
+#define ADC_THRESHOLD 128 // Voice activation threshold
 
 #ifndef OVERRIDE_PINS
 	#define STARTLED_PIN 7
@@ -476,6 +482,8 @@ const byte reverse[256] PROGMEM = {
 void setup() {
   pinMode(CS_PIN,OUTPUT);
   digitalWrite(CS_PIN, LOW);
+  pinMode(ACK_LED_PIN,OUTPUT);
+  digitalWrite(ACK_LED_PIN, LOW);
 
   // Init pins for states
   for(int ctr=0;states[ctr].anim;ctr++) {
@@ -538,6 +546,8 @@ void loop() {
     drawEyeR();
     getSprite(&eye[frameidx][0], state == WINK ? 0 : blinkidx);
     drawEyeL();
+
+   digitalWrite(ACK_LED_PIN, LOW);
 
   // If we're idling, count down
   if(waittick > 0) {
@@ -720,6 +730,7 @@ void wait(int ms, bool interruptable) {
         if(states[ctr2].pin) {
           if(checkExpression(states[ctr2].pin)) {
             nextstate = states[ctr2].id;
+            digitalWrite(ACK_LED_PIN, HIGH);
             if(interruptable) {
               waittick=0;
               return;
@@ -737,6 +748,11 @@ void statusCycle(unsigned char r, unsigned char g, unsigned char b) {
   static uint16_t pos=0;
   static int divider=0;
   int maxdiv=STATUS_DIVIDER;
+  #ifdef VOICE_DETECTOR
+    bool bright = !(analogRead(VOICE_PIN) > ADC_THRESHOLD);
+  #else
+    bool bright = false;
+  #endif
 
   divider++;
   if(divider > maxdiv) {
@@ -749,9 +765,14 @@ void statusCycle(unsigned char r, unsigned char g, unsigned char b) {
 
   for(ctr=0; ctr< STATUSPIXELS; ctr++) {
     statusbuffer[ctr] = CRGB(r,g,b);
-    statusbuffer[ctr].nscale8(ramp[(ctr+pos)%STEPS]);
+    if(bright) {
+      statusbuffer[ctr].nscale8(255);
+    } else {
+      statusbuffer[ctr].nscale8(ramp[(ctr+pos)%STEPS]);
+    }
   }
-    statusController->showLeds(STATUSBRIGHT);
+
+  statusController->showLeds(bright?VOICEBRIGHT:STATUSBRIGHT);
 #endif    
 }
 
