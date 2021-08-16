@@ -1,5 +1,8 @@
 //
-//  Synth Eyes for Arduino
+//  Synth Eyes for Arduino (Arthi version)
+//  V3.1.3 - Happy animation, fault animation with red status lights, fix status lights blip
+//  V3.1.2 - Blushing animation
+//  V3.1.1 - ACK LED and voice detection for status lights
 //  V3.1.0 - Optionally drive neopixel status lights as well
 //  V3.0.1 - Bug fix
 //  V3.0.0 - Restructure to use procedural blinking
@@ -39,7 +42,8 @@
 //  If your panels are in a different order, adjust the constants below
 //
 
-#define STATUS_LIGHTS
+#define STATUS_LIGHTS     // Drive neopixel status lights in the horns
+//#define VOICE_DETECTOR    // Flash the status lights if a microphone detects something
 
 #include <SPI.h>
 #ifdef STATUS_LIGHTS
@@ -48,26 +52,30 @@
 
 // Configurables, adjust to taste
 
-// RGB triplets for the status light colour, default to yellow (full red, full green, no blue)
+// RGB triplets for the status light colour, default to yellow (full red, half green, no blue)
 #define COLOUR_RED   0xff
-#define COLOUR_GREEN 0xff
+#define COLOUR_GREEN 0x80
 #define COLOUR_BLUE  0x00
 
-#define BRIGHTNESS  2  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
+#define BRIGHTNESS  12  // Brightness from 0-15.  You may need to adjust this   (TW: was 2, set to 12 for use with red filter)
 #define STATUSBRIGHT 100
+#define VOICEBRIGHT 255
 #define FRAME_IN_MS 20  // Delay per animation frame in milliseconds (20 default)
 #define WAIT_IN_MS  60  // Delay per tick in milliseconds when waiting to blink again (60 default)
 #define MIN_DELAY    5   // Minimum delay between blinks
 #define MAX_DELAY    250 // Maximum delay between blinks
-#define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower
+#define STATUS_DIVIDER 32  // This controls the speed of the status light chaser, bigger is slower (def 32)
 
 #define CS_PIN 10       // Chip select pin for eye panels
 #define STATUS_PIN 5    // Neopixels DIN pin for status LEDs
+#define ACK_LED_PIN A0  // Flashes briefly when receiving an expression input to signal that you've got it
+#define VOICE_PIN A1    // Audio input for flashing the status pins
+#define ADC_THRESHOLD 128 // Voice activation threshold
 
 #ifndef OVERRIDE_PINS
-  #define STARTLED_PIN 8
   #define OWO_PIN 7
   #define ANNOYED_PIN 6
+  #define FAULT_PIN 8
 #endif
 
 //
@@ -117,9 +125,12 @@ void statusCycle(unsigned char r, unsigned char g, unsigned char b);
 #define WAITING -1
 #define BLINK 0
 #define WINK 1
-#define OWO 2
-#define STARTLED 3
+#define ROLLEYE 2
+#define OWO 3
 #define ANNOYED 4
+#define BLUSH 5
+#define HAPPY 6
+#define FAULT 7
 
 int eyeptr=0;
 int frameidx=0;
@@ -162,13 +173,15 @@ unsigned char ramp[STEPS];
 
 // NOTE: Animations should always start with the default expression (e.g. 0) as they go back to the first frame in the list when the sequence finishes!
 
+// NOTE: Animations should always start with the default expression (e.g. 0) as they go back to the first frame in the list when the sequence finishes!
+
 signed char closeeye[] = {0,-50,0}; // Blink is now done procedurally instead of using a complex animation, so just display one frame and wait
 
 char owo[] = {0, 2, 3, 4, -30, 4, 3, 2, 0, -10};
 
-signed char startled[] = {0};
-
 signed char annoyed[] = {0, 5, 6, -30, 6, 5, 0, -10};
+
+signed char fault[] = {0,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4,7,-4,1,-4};
 
 //
 //  Sprite data
@@ -326,7 +339,26 @@ unsigned char eye[][32] = {
       B00000000,B00000000,
       B00000000,B00000000,
     },
-    
+    // fault (7)
+    {
+      B00000000,B00000000,
+      B00000000,B00000000,
+      B00000000,B00000000,
+      B00011000,B00011000,
+      B00001100,B00110000,
+      B00000110,B01100000,
+      B00000011,B11000000,
+      B00000001,B10000000,
+      B00000011,B11000000,
+      B00000110,B01100000,
+      B00001100,B00110000,
+      B00011000,B00011000,
+      B00000000,B00000000,
+      B00000000,B00000000,
+      B00000000,B00000000,
+      B00000000,B00000000,
+    }
+
   };
 
 //
@@ -345,9 +377,9 @@ struct STATES {
 struct STATES states[] = {
 {BLINK,     closeeye,    sizeof(closeeye), 0},
 {WINK,      closeeye,    sizeof(closeeye), 0},
-{OWO,   owo,     sizeof(owo),  OWO_PIN},
-{STARTLED,  startled,    sizeof(startled), STARTLED_PIN},
 {ANNOYED,   annoyed,     sizeof(annoyed),  ANNOYED_PIN},
+{OWO,       owo,         sizeof(owo),      OWO_PIN},
+{FAULT,     fault,       sizeof(fault),    FAULT_PIN},
 // DO NOT REMOVE THIS LAST LINE!
 {0,         NULL,        0,                0}  
 };
@@ -384,6 +416,8 @@ const byte reverse[256] PROGMEM = {
 void setup() {
   pinMode(CS_PIN,OUTPUT);
   digitalWrite(CS_PIN, LOW);
+  pinMode(ACK_LED_PIN,OUTPUT);
+  digitalWrite(ACK_LED_PIN, LOW);
 
   // Init pins for states
   for(int ctr=0;states[ctr].anim;ctr++) {
@@ -447,6 +481,8 @@ void loop() {
     getSprite(&eye[frameidx][0], state == WINK ? 0 : blinkidx);
     drawEyeL();
 
+   digitalWrite(ACK_LED_PIN, LOW);
+
   // If we're idling, count down
   if(waittick > 0) {
     if(state == BLINK || state == WINK) {
@@ -480,7 +516,7 @@ void loop() {
     }
 
     frameidx=eyeanim[eyeptr];
-  } 
+  }
   
   // Handle blinking
   if(state == BLINK || state == WINK) {
@@ -628,6 +664,7 @@ void wait(int ms, bool interruptable) {
         if(states[ctr2].pin) {
           if(checkExpression(states[ctr2].pin)) {
             nextstate = states[ctr2].id;
+            digitalWrite(ACK_LED_PIN, HIGH);
             if(interruptable) {
               waittick=0;
               return;
@@ -639,27 +676,51 @@ void wait(int ms, bool interruptable) {
   }
 }
 
+static int maxpos = 255 - (255%STEPS);
+
 void statusCycle(unsigned char r, unsigned char g, unsigned char b) {
 #ifdef STATUS_LIGHTS
   uint16_t ctr;
   static uint16_t pos=0;
   static int divider=0;
   int maxdiv=STATUS_DIVIDER;
+  #ifdef VOICE_DETECTOR
+    bool bright = !(analogRead(VOICE_PIN) > ADC_THRESHOLD);
+  #else
+    bool bright = false;
+  #endif
 
   divider++;
   if(divider > maxdiv) {
     pos++;
     divider=0;
   }
-  if(pos > 255) {
+  if(pos > maxpos) {
     pos=0;
   }
 
   for(ctr=0; ctr< STATUSPIXELS; ctr++) {
-    statusbuffer[ctr] = CRGB(r,g,b);
-    statusbuffer[ctr].nscale8(ramp[(ctr+pos)%STEPS]);
+    // If they're in an emergency state, make the lights red
+    if(state == FAULT) {
+      statusbuffer[ctr] = CRGB(255,0,0);
+    } else {
+      statusbuffer[ctr] = CRGB(r,g,b);
+    }
+    if(bright) {
+      statusbuffer[ctr].nscale8(255);
+    } else {
+      if(state == FAULT) {
+        // All blink together
+        statusbuffer[ctr].nscale8(ramp[pos%STEPS]);
+      }
+      else {
+        // Fairground effect
+        statusbuffer[ctr].nscale8(ramp[(ctr+pos)%STEPS]);
+      }
+    }
   }
-    statusController->showLeds(STATUSBRIGHT);
+
+  statusController->showLeds(bright?VOICEBRIGHT:STATUSBRIGHT);
 #endif    
 }
 
