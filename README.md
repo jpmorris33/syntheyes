@@ -1,7 +1,15 @@
 # syntheyes
 Arduino code to display blinking eyes on MAX7219 driver boards
 
-There is also an experimental raspberry Pi build.
+There is also an experimental raspberry Pi build, and the custom build for Arthi of Raptor's Den.
+
+v3.13   - Happy animation, fault animation with red status lights, fix status lights blip
+
+v3.12   - Blushing animation
+
+v3.11   - ACK LED and voice detection for status lights
+
+v3.10   - Optionally drive neopixel status lights as well
 
 v3.01   - Fix bug with procedural blinking
 
