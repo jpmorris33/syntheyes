@@ -1,5 +1,6 @@
 //
 //  Synth Eyes for Arduino
+//  V3.1.4 - Add hook for internal LCD screen messages, change checkExpression API
 //  V3.1.3 - Happy animation, fault animation with red status lights, fix status lights blip
 //  V3.1.2 - Blushing animation
 //  V3.1.1 - ACK LED and voice detection for status lights
@@ -120,8 +121,9 @@ void getSprite(unsigned char *ptr, int blinkpos);
 void sendData(int addr, byte opcode, byte data);
 void wait(int ms, bool interruptable);
 void getNextAnim();
-bool checkExpression(int pin);
+bool checkExpression(struct STATES *state);
 void statusCycle(unsigned char r, unsigned char g, unsigned char b);
+void setMessage(char *msg);
 
 // System state variables
 
@@ -527,21 +529,22 @@ struct STATES {
   signed char *anim;
   unsigned char animlen;
   char pin;
+  char *description;
 };
 
 // Add any new animation triggers here
 
 struct STATES states[] = {
-{BLINK,     closeeye,    sizeof(closeeye), 0},
-{WINK,      closeeye,    sizeof(closeeye), 0},
-{ROLLEYE,   rolleye,     sizeof(rolleye),  EYEROLL_PIN},
-{STARTLED,  startled,    sizeof(startled), STARTLED_PIN},
-{ANNOYED,   annoyed,     sizeof(annoyed),  ANNOYED_PIN},
-{BLUSH,     blush,       sizeof(blush),    BLUSH_PIN},
-{HAPPY,     happy,       sizeof(happy),    HAPPY_PIN},
-{FAULT,     fault,       sizeof(fault),    FAULT_PIN},
+{BLINK,     closeeye,    sizeof(closeeye), 0,             "Blinking"},
+{WINK,      closeeye,    sizeof(closeeye), 0,             "Winking"},
+{ROLLEYE,   rolleye,     sizeof(rolleye),  EYEROLL_PIN,   "Roll eye"},
+{STARTLED,  startled,    sizeof(startled), STARTLED_PIN,  "Startled"},
+{ANNOYED,   annoyed,     sizeof(annoyed),  ANNOYED_PIN,   "Annoyed"},
+{BLUSH,     blush,       sizeof(blush),    BLUSH_PIN,     "Blushing"},
+{HAPPY,     happy,       sizeof(happy),    HAPPY_PIN,     "Happy"},
+{FAULT,     fault,       sizeof(fault),    FAULT_PIN,     "Fault!"},
 // DO NOT REMOVE THIS LAST LINE!
-{0,         NULL,        0,                0}  
+{0,         NULL,        0,                0,             ""}  
 };
 
 
@@ -599,6 +602,8 @@ void setup() {
       sendData(panel, CMD_SCANLIMIT,7);
       sendData(panel, CMD_SHUTDOWN,1);  // 0 turns it off, 1 turns it on
   }
+
+  setMessage("");
 
 #ifdef STATUS_LIGHTS
   // Initialise the status lights
@@ -707,6 +712,12 @@ void getNextAnim() {
 
   eyeptr=0;
   state = nextstate;
+
+  if(state > WAITING) {
+    setMessage(states[state].description);
+  } else {
+    setMessage("");
+  }
 
   for(ctr=0;states[ctr].anim;ctr++) {
     if(states[ctr].id == nextstate) {
@@ -822,7 +833,7 @@ void wait(int ms, bool interruptable) {
     if(state == WAITING) {
       for(int ctr2=0;states[ctr2].anim;ctr2++) {
         if(states[ctr2].pin) {
-          if(checkExpression(states[ctr2].pin)) {
+          if(checkExpression(&states[ctr2])) {
             nextstate = states[ctr2].id;
             digitalWrite(ACK_LED_PIN, HIGH);
             if(interruptable) {
@@ -890,7 +901,14 @@ void statusCycle(unsigned char r, unsigned char g, unsigned char b) {
 //
 
 #ifndef CUSTOM_EXPRESSION_HANDLER
-bool checkExpression(int pin) {
-    return (digitalRead(pin) == LOW);
+bool checkExpression(STATES *state) {
+    return (digitalRead(state->pin) == LOW);
 }
 #endif
+
+//
+//  Display state on an LCD display (exercise for the reader)
+//
+
+void setMessage(char *msg) {
+}
