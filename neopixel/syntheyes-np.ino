@@ -2,9 +2,9 @@
 
 //
 //  Synth Eyes for Arduino Neopixels
-//  V1.1.0 - drive status LEDs as well
+//  V1.1.1 - Allow expressions to be different colours
 //
-//  Copyright (c) 2020 J. P. Morris
+//  Copyright (c) 2022 J. P. Morris
 // 
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -112,6 +112,8 @@ CRGB framebuffer[PIXELS];
 CRGB statusbuffer[STATUSPIXELS];
 unsigned char bitfb[8];
 CRGB colour(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
+CRGB colour_default(COLOUR_RED,COLOUR_GREEN,COLOUR_BLUE);
+CRGB colour_red(CRGB::Red);
 CLEDController *eyeController;
 CLEDController *statusController;
 
@@ -296,18 +298,19 @@ struct STATES {
   signed char *anim;
   unsigned char animlen;
   char pin;
+  CRGB *colour;
 };
 
 // Add any new animation triggers here
 
 struct STATES states[] = {
-{BLINK,     closeeye,    sizeof(closeeye), 0},
-{WINK,      closeeye,    sizeof(closeeye), 0},
-{ROLLEYE,   rolleye,     sizeof(rolleye),  EYEROLL_PIN},
-{STARTLED,  startled,    sizeof(startled), STARTLED_PIN},
-{ANNOYED,   annoyed,     sizeof(annoyed),  ANNOYED_PIN},
+{BLINK,     closeeye,    sizeof(closeeye), 0,             NULL},
+{WINK,      closeeye,    sizeof(closeeye), 0,             NULL},
+{ROLLEYE,   rolleye,     sizeof(rolleye),  EYEROLL_PIN,   NULL},
+{STARTLED,  startled,    sizeof(startled), STARTLED_PIN,  NULL, },
+{ANNOYED,   annoyed,     sizeof(annoyed),  ANNOYED_PIN,   &colour_red},
 // DO NOT REMOVE THIS LAST LINE!
-{0,         NULL,        0,                0}  
+{0,         NULL,        0,                0,             NULL}  
 };
 
 //
@@ -436,6 +439,7 @@ void loop() {
     if(eyeptr >= eyemax || nextstate) {
       // If we've hit the end, go back to the start and wait
       eyeptr=0;
+      colour = colour_default;
       // Wait between 5-250 cycles before blinking again
       waittick = random(MIN_DELAY,MAX_DELAY);
       state = WAITING;
@@ -481,10 +485,15 @@ void getNextAnim() {
   eyeptr=0;
   state = nextstate;
 
+  colour = colour_default;
+
   for(ctr=0;states[ctr].anim;ctr++) {
     if(states[ctr].id == nextstate) {
       eyeanim = states[ctr].anim;
       eyemax = states[ctr].animlen;
+      if(states[ctr].colour) {
+        colour = *states[ctr].colour;
+      }
       break;
     }
   }
