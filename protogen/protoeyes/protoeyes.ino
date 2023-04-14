@@ -1,10 +1,13 @@
 //
 //  Protogen Eyes for Arduino
+//  V2.0.3 - Improve stability of Defender mode
+//  V2.0.2 - Defender mode, Use Nano LED for user feedback on death/psycho modes
+//  V2.0.1 - Death Mode
 //  V2.0.0 - Single board
 //
 //  Based on example code from  https://gist.github.com/nrdobie/8193350  among other sources
 //
-//  Copyright (c) 2021 J. P. Morris
+//  Copyright (c) 2022 J. P. Morris
 // 
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -41,7 +44,9 @@
 
 #include <SPI.h>
 
-// #define ENABLE_PSYCHO    // Warning, mad protogen
+//#define ENABLE_PSYCHO    // Warning, mad protogen
+#define ENABLE_DEFENDER  // Shall we play a game?
+//#define DEAD_PROTO     // This could be triggered by a GPIO pin but I made it for a photoshoot
 
 // Configurables, adjust to taste
 
@@ -55,10 +60,10 @@
 #define CS_LEFT 9       // Chip select pins
 
 #ifndef OVERRIDE_PINS
-	#define STARTLED_PIN 7
-	#define ANNOYED_PIN 8
-//  #define LEFT_PIN    6
-//  #define SYNC_PIN    5
+	#define ANNOYED_PIN  8
+  #define STARTLED_PIN 7
+  #define KILL_PIN     6
+  #define REVIVE_PIN   5
 #endif
 
 //
@@ -88,6 +93,7 @@
 
 // Functions
 
+void initPanels(int brightness);
 void drawEyeL();
 void drawEyeR();
 void getSprite(unsigned char *ptr, int blinkpos);
@@ -104,6 +110,9 @@ bool checkExpression(int pin);
 #define STARTLED 3
 #define ANNOYED 4
 #define PSYCHO 5
+#define DEAD 6
+#define REVIVED 7
+#define DEFENDER 8
 
 int eyeptr=0;
 int mouthptr=0;
@@ -125,6 +134,9 @@ unsigned char spidata[16];
 
 // Frame buffer for procedural blink
 unsigned char framebuffer[8][2];
+
+// Standing mountain range for defender - the rest will be generated randomly
+unsigned char defender_map[64]={1,3,7,7,3,7,15,31,15,7,15,31,31,15,7,3,7,7,15,31,15,15,7,3,1,1,1,3,7,15,3,3,1,1,0,0,1,3,7,15,15,31,31,15,31,15,7,3,1,0,0,0,1,3,7,3,1,0,0,1,3,7,15,7};
 
 //
 //  Animation data
@@ -150,6 +162,10 @@ signed char annoyed[] = {0, 4,-15, 0};
 signed char psycho_l[] = {0, 7,-15, 1, -2, 7, -2, 1, -2, 7, -2, 1, -2, 7, -2, 1, -2, 7, -2, 1, -2, 7, -2, 1, -2, 7, -2, 1, 0};
 
 signed char psycho_r[] = {0, 8,-15, 1, -2, 8, -2, 1, -2, 8, -2, 1, -2, 8, -2, 1, -2, 8, -2, 1, -2, 8, -2, 1, -2, 8, -2, 1, 0};
+
+signed char dead[] = {9,-100};  // HACK: this won't go back to normal
+
+signed char defender[] = {0, -5, 0};
 
 //
 //  Sprite data
@@ -270,6 +286,17 @@ unsigned char eye[][16] = {
       B00010000,B10100101,
       B00010111,B10101001,
       B11110111,B10001001,
+    },
+    // Dead (9)
+    {
+      B00001100,B00110000,
+      B00000110,B01100000,
+      B00000011,B11000000,
+      B00000001,B10000000,
+      B00000011,B11000000,
+      B00000110,B01100000,
+      B00001100,B00110000,
+      B00000000,B00000000,
     }
   };
 
@@ -299,15 +326,26 @@ unsigned char mouth[][32] = {
     // unhappy (1)
     {
       B00000000,B00000000,B00000000,B00000000,
-      B00001001,B11100011,B00110000,B00000000,
+      B00011001,B11100011,B00110000,B00000000,
       B00100110,B00011100,B11001100,B00000000,
       B01000000,B00000000,B00000011,B11000000,
-      B00000000,B00000000,B00000000,B00001000,
+      B00000000,B00000000,B00000000,B00110000,
       B00000000,B00000000,B00000000,B00001000,
       B00000000,B00000000,B00000000,B00000100,
       B00000000,B00000000,B00000000,B00000000,
     },
     // surprised (2)
+    {
+      B00000000,B00000000,B00000000,B00000000,
+      B00000000,B00000000,B00000000,B00000000,
+      B00000000,B00000000,B00000000,B00000000,
+      B00001100,B00000000,B00000000,B00000000,
+      B00010010,B00000000,B00000000,B00000000,
+      B00010010,B00000000,B00000000,B00000000,
+      B00001100,B00000000,B00000000,B00000000,
+      B00000000,B00000000,B00000000,B00000000,
+    },
+    // defender DB (3)
     {
       B00000000,B00000000,B00000000,B00000000,
       B00000000,B00000000,B00000000,B00000000,
@@ -340,6 +378,9 @@ struct STATES states[] = {
 {STARTLED,  startled,   startled,     sizeof(startled), 2, STARTLED_PIN},
 {ANNOYED,   annoyed,    annoyed,      sizeof(annoyed),  1, ANNOYED_PIN},
 {PSYCHO,    psycho_l,   psycho_r,     sizeof(psycho_l), 0, 0},
+{DEAD,      dead,       dead,         sizeof(dead),     1, KILL_PIN},
+{REVIVED,   startled,   startled,     sizeof(startled), 2, REVIVE_PIN},
+{DEFENDER,  defender,   defender,     sizeof(defender), 3, 0},
 // DO NOT REMOVE THIS LAST LINE!
 {0,         NULL,       NULL,         0,                0, 0}  
 };
@@ -352,6 +393,8 @@ struct STATES states[] = {
 void setup() {
   pinMode(CS_LEFT,OUTPUT);
   pinMode(CS_RIGHT,OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
   
   // Init pins for states
   for(int ctr=0;states[ctr].animL;ctr++) {
@@ -364,25 +407,7 @@ void setup() {
   SPI.begin();
   SPI.beginTransaction( SPISettings(16000000, MSBFIRST, SPI_MODE3 ) );
 
-//  digitalWrite(CS_LEFT, HIGH);
-  // Initialise the panels
-  for(int panel=0;panel<8;panel++) {
-      sendData(CS_LEFT, panel, CMD_TEST,0);
-      sendData(CS_LEFT, panel, CMD_DECODE,0);    // Disable BCD decoder so we can sent sprite data instead
-      sendData(CS_LEFT, panel, CMD_INTENSITY,BRIGHTNESS);
-      sendData(CS_LEFT, panel, CMD_SCANLIMIT,7);
-      sendData(CS_LEFT, panel, CMD_SHUTDOWN,1);  // 0 turns it off, 1 turns it on
-  }
-
-//  digitalWrite(CS_RIGHT, HIGH);
-  // Initialise the panels
-  for(int panel=0;panel<8;panel++) {
-      sendData(CS_RIGHT, panel, CMD_TEST,0);
-      sendData(CS_RIGHT, panel, CMD_DECODE,0);    // Disable BCD decoder so we can sent sprite data instead
-      sendData(CS_RIGHT, panel, CMD_INTENSITY,BRIGHTNESS);
-      sendData(CS_RIGHT, panel, CMD_SCANLIMIT,7);
-      sendData(CS_RIGHT, panel, CMD_SHUTDOWN,1);  // 0 turns it off, 1 turns it on
-  }
+  initPanels(BRIGHTNESS);
   
   randomSeed(0);  
 
@@ -404,9 +429,67 @@ void setup() {
   getSprite(&eye[0][0], 0);
   drawEyeR();
   drawEyeL();
+
+  // HACK
+#ifdef DEAD_PROTO  
+  state = DEAD;
+  nextstate = DEAD;
+  getNextAnim();
+#endif
+  
+}
+
+void initPanels(int brightness) {
+  // Initialise the panels
+  for(int panel=0;panel<8;panel++) {
+      sendData(CS_LEFT, panel, CMD_TEST,0);
+      sendData(CS_LEFT, panel, CMD_DECODE,0);    // Disable BCD decoder so we can sent sprite data instead
+      sendData(CS_LEFT, panel, CMD_INTENSITY,brightness);
+      sendData(CS_LEFT, panel, CMD_SCANLIMIT,7);
+      sendData(CS_LEFT, panel, CMD_SHUTDOWN,1);  // 0 turns it off, 1 turns it on
+  }
+
+  // Initialise the panels
+  for(int panel=0;panel<8;panel++) {
+      sendData(CS_RIGHT, panel, CMD_TEST,0);
+      sendData(CS_RIGHT, panel, CMD_DECODE,0);    // Disable BCD decoder so we can sent sprite data instead
+      sendData(CS_RIGHT, panel, CMD_INTENSITY,brightness);
+      sendData(CS_RIGHT, panel, CMD_SCANLIMIT,7);
+      sendData(CS_RIGHT, panel, CMD_SHUTDOWN,1);  // 0 turns it off, 1 turns it on
+  }
 }
 
 void loop() {
+   static int flashtimer=128;
+   static int defendertimer=1024;
+   flashtimer--;
+   if(flashtimer < 0) {
+    flashtimer = 128;
+   }
+
+#ifdef ENABLE_DEFENDER
+    if(state == DEFENDER) {
+      defendertimer--;
+      if(defendertimer < 1) {
+
+        initPanels(BRIGHTNESS); // Reboot the panels as this sometimes crashes one of them
+        
+        getNextAnim();
+        defendertimer = 512;
+      }
+      nextstate = BLINK;
+      wait(FRAME_IN_MS,false); // Can't interrupt a blink
+      // Disable eye for power saving
+      getSprite(&eye[0][0], 8);
+      update_defender();
+      updateL=updateR=true;
+      initPanels(BRIGHTNESS); // Reboot the panels every frame, this is a horrible workaround (NB: we could use this to modulate the brightness by voice)
+      drawEyeL();
+      drawEyeR();
+      return;
+    }
+#endif
+  
    // Draw the sprites
    getSprite(&eye[frameidxL][0], state == WINK ? 0 : blinkidx);
    drawEyeL();
@@ -429,6 +512,10 @@ void loop() {
     // Otherwise, update the animation
     updateL=updateR=true;
     wait(FRAME_IN_MS,false);
+
+    if(state == PSYCHO) {
+      digitalWrite(LED_BUILTIN, flashtimer & 8);
+    }
 
     eyeptr++;
     if(eyeptr >= eyemax || nextstate) {
@@ -476,6 +563,11 @@ void loop() {
 void getNextAnim() {
   int ctr;
 
+  // Stay dead
+  if((state == DEAD || nextstate == DEAD) && nextstate != REVIVED) {
+    state = DEAD;
+  }
+
   eyeptr=0;
   mouthptr=0;
   state = nextstate;
@@ -489,17 +581,36 @@ void getNextAnim() {
       break;
     }
   }
+
+  if(state == DEAD) {
+    // Lie down and stop breathing at once!
+    digitalWrite(LED_BUILTIN, HIGH); // Steady state
+    return;
+  }
+
+  if(state == REVIVED) {
+    digitalWrite(LED_BUILTIN, LOW); // Alive again
+  }
+  
   nextstate = BLINK;
 
   if(state == BLINK) {
 
 #ifdef ENABLE_PSYCHO
-    ctr = random(1,10);  // 1 in 10 chance of him doing the Kill thing
+    ctr = random(1,25);  // 1 in 25 chance of him doing the Kill thing
     if(ctr == 1) {
       state = PSYCHO;
       eyeanimL = psycho_l;
       eyeanimR = psycho_r;
       eyemax = sizeof(psycho_l); // Must be same size!
+      return;
+    }
+#endif
+
+#ifdef ENABLE_DEFENDER
+    ctr = random(1,5);  // 1 in 10 chance of him playing defender
+    if(ctr == 1) {
+      nextstate = DEFENDER;
       return;
     }
 #endif
@@ -640,6 +751,147 @@ void wait(int ms, bool interruptable) {
     }
   }
 }
+
+#ifdef ENABLE_DEFENDER
+
+void update_defender() {
+  unsigned char *defender_fb = &mouth[3][0];
+  static int scrollpos;
+  static boolean divider;
+  static int bulletx=-1,bullety;
+  int ypos;
+  divider = !divider;
+  if(divider) {
+    update_map(&defender_map[0]);
+  }
+
+  render_heightfield(&defender_map[0], &defender_fb[0]);
+  render_heightfield(&defender_map[8], &defender_fb[1]);
+  render_heightfield(&defender_map[16], &defender_fb[2]);
+  render_heightfield(&defender_map[24], &defender_fb[3]);
+
+  ypos = get_shippos(8);
+  add_ship(&defender_fb[1], ypos);
+
+  if(bulletx < 0) {
+    if(random(1,20) == 1) {
+      bulletx=12;
+      bullety=ypos+1;
+    }
+  } else {
+    if(!add_bullet(&defender_fb[0],bulletx,bullety)) {
+      bulletx = -1; // Hit something
+      return;
+    }
+    bulletx++;
+    if(bulletx > 31) {
+      bulletx=-1;
+    }
+  }
+}
+
+// Scroll the map along and randomly generate new mountains
+
+void update_map(unsigned char *map) {
+  static int dir=1;
+  static int y=0;
+  // Shuffle it along
+  for(int ctr=0;ctr<31;ctr++) {
+    map[ctr]=map[ctr+1];
+  }
+  
+  map[31]=1 << y;
+  map[31]--;
+
+  if(random(1,3) != 1) {
+    y += dir;
+  }
+
+  if(y>5) {
+    if(random(1,3) == 1) {
+      dir=-1;
+    }
+  }
+  
+  if(y>6) {
+    y=5;
+    dir=-1;
+  }
+  if(y<0) y=0;
+
+  if(random(1,4) == 1) {
+    dir = -dir;
+  }
+}
+
+
+void render_heightfield(unsigned char *in, unsigned char *out) {
+  unsigned char a,b,c,d,e,f,g,h;
+  a=*in++;  b=*in++;  c=*in++;  d=*in++;
+  e=*in++;  f=*in++;  g=*in++;  h=*in++;
+
+  for(int y=0;y<8;y++) {
+    out[y<<2]=(a&128)|((b&128)>>1)|((c&128)>>2)|((d&128)>>3)|((e&128)>>4)|((f&128)>>5)|((g&128)>>6)|((h&128)>>7);
+    a<<=1;    b<<=1;    c<<=1;    d<<=1;
+    e<<=1;    f<<=1;    g<<=1;    h<<=1;
+  }
+}
+
+void add_ship(unsigned char *fb, int y) {
+  fb += (y<<2);
+  *fb |= 0x80;  // 1 for other way
+  fb += 4;
+  *fb |= 0xe0;  // 6 for other way
+}
+
+bool add_bullet(unsigned char *fb, int x, int y) {
+int panel = x>>3;
+x = x&7;
+
+fb += (y<<2);
+
+x = 128>>x;
+
+if(fb[panel] & x) {
+  return false; // Hit something
+}
+fb[panel] |= x;
+
+return true;
+}
+
+int get_maxheight(int slice) {
+  if(defender_map[slice] & 128) return 8;
+  if(defender_map[slice] & 64)  return 7;
+  if(defender_map[slice] & 32)  return 6;
+  if(defender_map[slice] & 16)  return 5;
+  if(defender_map[slice] & 8)  return 4;
+  if(defender_map[slice] & 4)  return 3;
+  if(defender_map[slice] & 2)  return 2;
+  if(defender_map[slice] & 1)  return 1;
+  return 0;
+}
+
+int get_shippos(int slice) {
+  int max=0,c;
+  max=get_maxheight(slice);
+  c=get_maxheight(slice+1);
+  if(c>max) {
+    max=c;
+  }
+  c=get_maxheight(slice+2);
+  if(c>max) {
+    max=c;
+  }
+
+  c = (8-max)-4;
+  if(c<0) {
+    c=0;
+  }
+  return c;
+}
+
+#endif
 
 //
 //  Default handler for Arduino, can be replaced for other platforms
