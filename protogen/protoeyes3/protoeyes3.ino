@@ -189,12 +189,7 @@ signed char defender[] = {0, -5, 0};
 //
 //  Sprite data
 //
-// These are 16x16 monochrome sprites, 0 is dark, 1 is lit
-// The first byte is the top-left corner, second byte is the top-right corner.
-// The third byte is the left 8 pixels of the second row, fourth is the right 8 pixels and so on.
-//
-// If customising the sprites, you may find it easier to express these in binary,
-// e.g.  B00010000, B00111000
+// These are  monochrome sprites, 0 is dark, 1 is lit
 //
 // You could also add extra animation frames and logic, e.g. to roll the eyes
 // Or to make them animate a pixel at a time instead of two pixels
